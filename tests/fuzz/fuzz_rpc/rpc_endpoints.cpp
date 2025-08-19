@@ -23,17 +23,21 @@ void disable_bootstrap_daemon(cryptonote::core_rpc_server& rpc) {
 
 // Retrieve fuzz targets base on SAFE settings
 std::map<int, std::function<void(cryptonote::core_rpc_server& rpc, FuzzedDataProvider&)>> get_fuzz_targets(bool safe) {
-    // Only return safe and stable fuzz targets
+    std::map<int, std::function<void(cryptonote::core_rpc_server& rpc, FuzzedDataProvider&)>> results;
+
     if (safe) {
-      return safe_fuzz_targets;
+        // Only return safe and stable fuzz targets after re-indexing
+        for (const auto& kv : safe_fuzz_targets) {
+            results[kv.first - 14] = kv.second;
+        }
+    } else {
+        // Return the full list of fuuzz targets
+        results.insert(priority_fuzz_targets.begin(), priority_fuzz_targets.end());
+        results.insert(safe_fuzz_targets.begin(), safe_fuzz_targets.end());
+        results.insert(risky_fuzz_targets.begin(), risky_fuzz_targets.end());
     }
 
-    // Return the full list of fuuzz targets
-    std::map<int, std::function<void(cryptonote::core_rpc_server& rpc, FuzzedDataProvider&)>> combined;
-    combined.insert(priority_fuzz_targets.begin(), priority_fuzz_targets.end());
-    combined.insert(safe_fuzz_targets.begin(), safe_fuzz_targets.end());
-    combined.insert(risky_fuzz_targets.begin(), risky_fuzz_targets.end());
-    return combined;
+    return results;
 }
 
 // Fuzzing functions for different RPC endpoint functions
