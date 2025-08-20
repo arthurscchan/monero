@@ -19,7 +19,12 @@ struct RpcServerBundle {
   std::unique_ptr<cryptonote::core_rpc_server> rpc;
 };
 
-std::unique_ptr<cryptonote::core> initialise_rpc_core();
+struct CoreEnv {
+  std::unique_ptr<DummyProtocol> protocol;
+  std::unique_ptr<cryptonote::core> core;
+};
+
+std::unique_ptr<CoreEnv> initialise_rpc_core();
 std::unique_ptr<RpcServerBundle> initialise_rpc_server(cryptonote::core&, FuzzedDataProvider&, bool);
 bool generate_random_blocks(cryptonote::core&, FuzzedDataProvider&);
 

@@ -8,8 +8,6 @@
 #include <vector>
 #include <algorithm>
 
-std::vector<size_t> historical_counts;
-
 // Helper definition for timeout recovery
 static sigjmp_buf jump_env;
 void timeout_handler(int sig) {
@@ -20,37 +18,6 @@ void timeout_handler(int sig) {
   }
 
   siglongjmp(jump_env, 1);
-}
-
-// Helper function to generate a biased selector targeting rarely-fuzzed RPC endpoints
-int biased_selector(FuzzedDataProvider& provider) {
-  size_t total = std::accumulate(historical_counts.begin(), historical_counts.end(), size_t{0}) + 1;
-
-  // Calculate the probabilites for each RPC endpoint.
-  // The more frequantly it has been selected, the less likely it becomes next time.
-  std::vector<double> probabilities;
-  for (size_t c : historical_counts) {
-    probabilities.push_back((total - c + 1.0) / total);
-  }
-
-  // Compute the total probabilty weight and consume a random double from the provider
-  double sum = std::accumulate(probabilities.begin(), probabilities.end(), 0.0);
-  double r = provider.ConsumeFloatingPoint<double>() * sum;
-
-  // Loop over each weighted probability. The higher the weight, the more likely
-  // the selector will match as the value of 'r' decreases below zero.
-  // Also, there is a second bias on the order of the rpc endpoints, which
-  // higher priority endpoints with smaller selector indx has slighly more chance
-  // to be selected.
-  for (size_t i = 0; i < probabilities.size(); ++i) {
-    if (r < probabilities[i]) {
-      return static_cast<int>(i);
-    }
-    r -= probabilities[i];
-  }
-
-  // Eeturn the final index in case no match was found earlly.
-  return static_cast<int>(probabilities.size() - 1);
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -69,11 +36,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Retrieve a list of all fuzz targets
   auto fuzz_targets = get_fuzz_targets(is_safe_mode);
-
-  // Initialise historical counts for bias selector generation
-  if (historical_counts.empty()) {
-    historical_counts.resize(fuzz_targets.size(), 0);
-  }
 
   // Disable fatal exits for logging.
   el::Loggers::addFlag(el::LoggingFlag::DisableApplicationAbortOnFatalLog);
@@ -96,22 +58,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     }
   }
 
-  // Randomly
+  // Randomly select rpc functions to call
   for (int i = 0; i < rpc_messages_to_sent && provider.remaining_bytes() >= 2; ++i) {
-    int selector;
-    if (provider.ConsumeBool()) {
-      // Using general FuzzedDataProvider approach
-      selector = provider.ConsumeIntegralInRange<int>(0, fuzz_targets.size() - 1);
-    } else {
-      // Using FuzzedDataProvider with bias on unfuzzed/low-fuzzed rpc endpoints
-      selector = biased_selector(provider);
-    }
-    selectors.push_back(selector);
-    historical_counts[selector]++;
+    int selector = provider.ConsumeIntegralInRange<int>(0, fuzz_targets.size() - 1);
   }
 
   // Initialise core and core_rpc_server
-  auto dummy_core = initialise_rpc_core();
+  auto core_env = initialise_rpc_core();
+  auto& dummy_core = core_env->core;
   auto rpc_handler = initialise_rpc_server(*dummy_core, provider, !is_safe_mode);
 
   // Generalise random blocks/miners/transactions and push to the core blockchains

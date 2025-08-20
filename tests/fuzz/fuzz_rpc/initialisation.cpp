@@ -39,10 +39,12 @@ bool DummyProtocol::relay_block(cryptonote::NOTIFY_NEW_FLUFFY_BLOCK::request&, c
 }
 
 // Function to create and initialise a dummy rpc core object
-std::unique_ptr<cryptonote::core> initialise_rpc_core() {
+std::unique_ptr<CoreEnv> initialise_rpc_core() {
+  auto env = std::make_unique<CoreEnv>();
+
   // Create fresh pointer for dummy protocol and core
-  auto dummy_protocol = std::make_unique<DummyProtocol>();
-  auto dummy_core = std::make_unique<cryptonote::core>(dummy_protocol.get());
+  env->protocol = std::make_unique<DummyProtocol>();
+  env->core = std::make_unique<cryptonote::core>(env->protocol.get());
 
   // Configure the rpc core object with default settings
   boost::program_options::options_description desc;
@@ -57,9 +59,9 @@ std::unique_ptr<cryptonote::core> initialise_rpc_core() {
   boost::program_options::notify(vm);
 
   // Initialise the dummy core with all the above settings
-  dummy_core->init(vm);
+  env->core->init(vm);
 
-  return dummy_core;
+  return env;
 }
 
 // Build the core_rpc_server handler object with the configured dummy core object
