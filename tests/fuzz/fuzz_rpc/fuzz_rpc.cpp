@@ -8,18 +8,6 @@
 #include <vector>
 #include <algorithm>
 
-// Helper definition for timeout recovery
-static sigjmp_buf jump_env;
-void timeout_handler(int sig) {
-  if (tools::performance_timers) {
-    tools::performance_timers->clear();
-    delete tools::performance_timers;
-    tools::performance_timers = nullptr;
-  }
-
-  siglongjmp(jump_env, 1);
-}
-
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // In general an iteration need a fair amount of data so ensure we have enough
   // to work with, otherwise return 0 to skip this iteration.
@@ -40,9 +28,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Disable fatal exits for logging.
   el::Loggers::addFlag(el::LoggingFlag::DisableApplicationAbortOnFatalLog);
 
-  // Register a handler for timeout alarm signal
-  signal(SIGALRM, timeout_handler);
-
   // Prepare base FuzzedDataProvider
   FuzzedDataProvider provider(data, size);
 
@@ -56,11 +41,18 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     for (int i = 0; i < priority_fuzz_targets.size(); ++i) {
         selectors.push_back(i);
     }
+
+    // Randomly shuffle the selectors for priority fuzz targets
+    for (int i = 0; i < priority_fuzz_targets.size(); i++) {
+      int target = provider.ConsumeIntegralInRange<int>(0, priority_fuzz_targets.size() - 1);
+      std::swap(selectors[i], selectors[target]);
+    }
   }
 
   // Randomly select rpc functions to call
   for (int i = 0; i < rpc_messages_to_sent && provider.remaining_bytes() >= 2; ++i) {
     int selector = provider.ConsumeIntegralInRange<int>(0, fuzz_targets.size() - 1);
+    selectors.push_back(selector);
   }
 
   // Initialise core and core_rpc_server
@@ -79,26 +71,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   disable_bootstrap_daemon(*rpc_handler->rpc);
 
   for (int selector : selectors) {
-    // Configure returning point for timeout
-    if (sigsetjmp(jump_env, 1) == 0) {
-      try {
-        // Start a timeout alarm for 120 secs
-        // SIGALARM will be sent once 120 is up
-        // timeout_handler catches the SIGALARM and return to the
-        // last sigsetjmp call with matching value to allow the code
-        // skipping to the next iteration
-        alarm(120);
-        // Fuzz the target function
-        fuzz_targets[selector](*rpc_handler->rpc, provider);
-      } catch (const std::runtime_error&) {
-        // Known runtime_error thrown from monero
-      } catch (const cryptonote::DB_ERROR& e) {
-        // Known error thrown from monero on internal blockchain DB check
-        // when fuzzing with random values
-      }
-
-      // Clear the alarm before next iteration
-      alarm(0);
+    try {
+      // Fuzz the target function
+      fuzz_targets[selector](*rpc_handler->rpc, provider);
+    } catch (const std::runtime_error&) {
+      // Known runtime_error thrown from monero
+    } catch (const cryptonote::DB_ERROR& e) {
+      // Known error thrown from monero on internal blockchain DB check
+      // when fuzzing with random values
     }
   }
 
