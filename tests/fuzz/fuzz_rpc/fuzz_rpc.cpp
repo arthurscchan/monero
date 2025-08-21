@@ -79,6 +79,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     } catch (const cryptonote::DB_ERROR& e) {
       // Known error thrown from monero on internal blockchain DB check
       // when fuzzing with random values
+#ifdef CATCH_ALL_EXCEPTIONS
+    } catch (...) {
+      // Slient all exceptions
+#endif
     }
   }
 
