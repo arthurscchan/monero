@@ -70,7 +70,6 @@ void fuzz_get_blocks(cryptonote::core_rpc_server& rpc, FuzzedDataProvider& provi
 
   req.prune = provider.ConsumeBool();
   req.no_miner_tx = provider.ConsumeBool();
-  req.high_height_ok = provider.ConsumeBool();
 
   rpc.on_get_blocks(req, res, &ctx);
 }
